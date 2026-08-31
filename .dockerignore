@@ -1,0 +1,10 @@
+.git
+.gitattributes
+*.md
+dist/
+bin/
+*.exe
+*.test
+.env
+.env.*
+!.env.example

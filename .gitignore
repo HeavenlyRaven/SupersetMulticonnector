@@ -1,0 +1,12 @@
+.env
+dist/
+/fedctl
+/fedctl.exe
+*.supx
+extension/frontend/node_modules/
+extension/frontend/dist/
+extension/backend/dist/
+extension/backend/*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/

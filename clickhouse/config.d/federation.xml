@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!--
+  Server-level ClickHouse configuration for the federation hub.
+  See spec section 8. user_files_path is deliberately left at ClickHouse's
+  own default (/var/lib/clickhouse/user_files/), which is exactly where
+  the ch-user-files named volume is mounted in compose.yaml.
+-->
+<clickhouse>
+    <!-- Honour the container's memory limit (deploy.resources.limits.memory
+         in compose.yaml) instead of reading host RAM, which would let
+         ClickHouse think it has the whole machine to itself. -->
+    <max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>
+
+    <!-- Bounded TTL so the query log volume cannot grow without limit. -->
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <engine>ENGINE = MergeTree PARTITION BY event_date ORDER BY event_time TTL event_date + INTERVAL 14 DAY</engine>
+    </query_log>
+
+    <!-- Server-level query cache size bounds. Per-query/per-user opt-in
+         (use_query_cache=1, short query_cache_ttl) lives in
+         users.d/roles.xml's bi_readonly profile, applied to Superset's
+         bi_ro connection for repeated dashboard loads. -->
+    <query_cache>
+        <max_size_in_bytes>1073741824</max_size_in_bytes>
+        <max_entries>1024</max_entries>
+        <max_entry_size_in_bytes>1048576</max_entry_size_in_bytes>
+    </query_cache>
+</clickhouse>

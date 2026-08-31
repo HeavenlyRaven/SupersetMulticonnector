@@ -1,0 +1,10 @@
+# Test-only overlay: publishes ClickHouse's native port so this Go test
+# process (running on the CI host, outside the docker network) can dial
+# in directly to assert on real rows via database/sql. Production
+# compose.yaml deliberately never publishes this port (spec section 6,
+# "Only superset publishes a port") — this file exists only under
+# test/integration and is never referenced by `fedctl up`.
+services:
+  clickhouse:
+    ports:
+      - "19000:9000"

@@ -1,0 +1,9 @@
+{
+  "publisher": "acme",
+  "name": "ch-federation",
+  "displayName": "ClickHouse Federation",
+  "description": "Manage live federated sources (PostgreSQL, MySQL, SQLite) on the ClickHouse hub from SQL Lab.",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "permissions": ["can_manage on ChFederationAPI", "can_read on ChFederationAPI"]
+}

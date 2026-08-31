@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<!--
+  The two roles the whole stack runs as. See spec section 8.
+
+  fed_admin — used only by fedctl (never by Superset). Can create/drop the
+  per-source databases and named collections that back federated queries.
+
+  bi_ro — used only by Superset's own ClickHouse connection (configured in
+  section 12). readonly=2 (can change settings within a query, e.g.
+  use_query_cache, but cannot mutate data), tuned for federated joins.
+
+  Passwords come from the environment via from_env, never written here in
+  plaintext — see compose.yaml's environment block and .env.example.
+
+  NOTE: the exact GRANT syntax for NAMED COLLECTION CONTROL should be
+  re-verified against the pinned ClickHouse version (26.8) before
+  production use — see spec section 9 rule 5 and this repo's README
+  known-limitations section.
+-->
+<clickhouse>
+    <profiles>
+        <default>
+        </default>
+
+        <bi_readonly>
+            <readonly>2</readonly>
+            <join_algorithm>grace_hash,parallel_hash,hash</join_algorithm>
+            <max_bytes_in_join from_env="CLICKHOUSE_MAX_BYTES_IN_JOIN" />
+            <max_memory_usage from_env="CLICKHOUSE_MAX_MEMORY_USAGE" />
+            <max_execution_time>300</max_execution_time>
+            <join_use_nulls>1</join_use_nulls>
+            <use_query_cache>1</use_query_cache>
+            <query_cache_ttl>60</query_cache_ttl>
+        </bi_readonly>
+    </profiles>
+
+    <users>
+        <fed_admin>
+            <password from_env="CLICKHOUSE_FED_ADMIN_PASSWORD" />
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+            <grants>
+                <query>GRANT CREATE DATABASE, DROP DATABASE ON *.*</query>
+                <query>GRANT SELECT ON system.*</query>
+                <query>GRANT NAMED COLLECTION CONTROL ON *</query>
+            </grants>
+        </fed_admin>
+
+        <bi_ro>
+            <password from_env="CLICKHOUSE_BI_RO_PASSWORD" />
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>bi_readonly</profile>
+            <quota>default</quota>
+        </bi_ro>
+    </users>
+</clickhouse>

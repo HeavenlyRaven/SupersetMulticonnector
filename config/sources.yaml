@@ -1,0 +1,32 @@
+# Declarative source configuration for `fedctl apply` and `fedctl plan`.
+# Passwords are never literal here — password_env names an environment
+# variable fedctl reads at apply time, so this file is safe to commit.
+#
+# This is an example / template. Delete or edit the entries below to
+# match your real sources, then run:
+#   fedctl plan -f config/sources.yaml     # preview the DDL
+#   fedctl apply -f config/sources.yaml    # reconcile (idempotent)
+
+sources:
+  - name: fed_sales
+    type: postgres
+    host: pg.example.internal
+    port: 5432
+    user: svc_readonly
+    password_env: FED_SALES_PASSWORD
+    database: salesdb
+    schema: public
+
+  - name: fed_orders
+    type: mysql
+    host: mysql.example.internal
+    port: 3306
+    user: svc_readonly
+    password_env: FED_ORDERS_PASSWORD
+    database: ordersdb
+
+  - name: fed_ref
+    type: sqlite
+    # Must already be seeded into ch-user-files:
+    #   fedctl seed sqlite --from ./app.sqlite --as app.sqlite
+    path: app.sqlite

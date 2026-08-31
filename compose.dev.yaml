@@ -1,0 +1,35 @@
+# Sample source databases for local testing only — the `dev` profile
+# means `docker compose up` never starts these unless explicitly asked
+# for (`fedctl up --dev` passes --profile dev). Not part of the
+# production stack; never required by `fedctl up` without --dev.
+#
+# Their hostnames resolve to addresses in the docker-network's private
+# range, which validate.Host denies by default — add them to
+# FEDCTL_ALLOWED_SOURCE_HOSTS in .env to attach them as sources locally
+# (see .env.example and the README quickstart).
+
+services:
+  dev-postgres:
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+    profiles: ["dev"]
+    networks:
+      - federation
+    environment:
+      POSTGRES_USER: sample
+      POSTGRES_PASSWORD: sample
+      POSTGRES_DB: sampledb
+    volumes:
+      - ./dev/postgres-init:/docker-entrypoint-initdb.d:ro,z
+
+  dev-mysql:
+    image: mysql:8.4@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb
+    profiles: ["dev"]
+    networks:
+      - federation
+    environment:
+      MYSQL_ROOT_PASSWORD: sample-root
+      MYSQL_USER: sample
+      MYSQL_PASSWORD: sample
+      MYSQL_DATABASE: sampledb
+    volumes:
+      - ./dev/mysql-init:/docker-entrypoint-initdb.d:ro,z
