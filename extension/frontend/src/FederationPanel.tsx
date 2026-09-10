@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Table } from '@apache-superset/core/components';
+import { components } from '@apache-superset/core';
 
 import { api } from './api';
 import AddSourceModal from './AddSourceModal';
 import RemoveSourceModal from './RemoveSourceModal';
+import { buttonStyle, tableStyle, thStyle, tdStyle } from './styles';
 import type { ApiError, SourceSummary, SourceTypeInfo } from './types';
 import { isApiError } from './types';
+
+const { Alert } = components;
 
 type HealthState = 'unknown' | 'checking' | 'healthy' | 'unhealthy';
 
@@ -68,71 +71,87 @@ export default function FederationPanel() {
     }
   }
 
-  const columns = [
-    { title: 'Name', dataIndex: 'name', key: 'name' },
-    { title: 'Type', dataIndex: 'type', key: 'type' },
-    { title: 'Host', dataIndex: 'host', key: 'host' },
-    { title: 'Tables', dataIndex: 'tableCount', key: 'tableCount' },
-    {
-      title: 'Health',
-      key: 'health',
-      render: (_: unknown, row: SourceSummary) => healthDot(health[row.name]),
-    },
-    {
-      title: 'Last checked',
-      key: 'lastChecked',
-      render: (_: unknown, row: SourceSummary) => formatLastChecked(lastChecked[row.name]),
-    },
-    {
-      title: 'Actions',
-      key: 'actions',
-      render: (_: unknown, row: SourceSummary) => (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button size="small" onClick={() => probe(row.name)}>Probe</Button>
-          {canManage && (
-            <Button size="small" danger onClick={() => setRemoving(row.name)}>Remove</Button>
-          )}
-        </div>
-      ),
-    },
-  ];
-
   return (
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <h3>Federated sources</h3>
+        <h3 style={{ margin: 0 }}>Federated sources</h3>
         {canManage ? (
-          <Button type="primary" onClick={() => setShowAdd(true)}>Add source</Button>
+          <button style={buttonStyle('primary')} onClick={() => setShowAdd(true)}>
+            Add source
+          </button>
         ) : (
-          <span style={{ opacity: 0.7 }} title="Your role does not include manage access for federated sources">
+          <span style={{ opacity: 0.7, fontSize: 13 }} title="Your role does not include manage access for federated sources">
             Read-only
           </span>
         )}
       </div>
 
       {error && (
-        <div role="alert" style={{ color: 'crimson', marginBottom: 12 }}>
-          {error.message}{error.hint ? ` — ${error.hint}` : ''}
+        <div style={{ marginBottom: 12 }}>
+          <Alert type="error" showIcon>
+            {error.message}
+            {error.hint ? ` — ${error.hint}` : ''}
+          </Alert>
         </div>
       )}
 
-      <Table loading={loading} dataSource={sources} columns={columns} rowKey="name" />
+      {loading ? (
+        <p>Loading…</p>
+      ) : sources.length === 0 ? (
+        <p style={{ opacity: 0.7 }}>No federated sources yet.</p>
+      ) : (
+        <table style={tableStyle()}>
+          <thead>
+            <tr>
+              <th style={thStyle()}>Name</th>
+              <th style={thStyle()}>Type</th>
+              <th style={thStyle()}>Host</th>
+              <th style={thStyle()}>Tables</th>
+              <th style={thStyle()}>Health</th>
+              <th style={thStyle()}>Last checked</th>
+              <th style={thStyle()}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sources.map((row) => (
+              <tr key={row.name}>
+                <td style={tdStyle()}>{row.name}</td>
+                <td style={tdStyle()}>{row.type}</td>
+                <td style={tdStyle()}>{row.host || <span style={{ opacity: 0.5 }}>— (local file)</span>}</td>
+                <td style={tdStyle()}>{row.tableCount}</td>
+                <td style={tdStyle()}>{healthDot(health[row.name])}</td>
+                <td style={tdStyle()}>{formatLastChecked(lastChecked[row.name])}</td>
+                <td style={tdStyle()}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button style={buttonStyle('default')} onClick={() => probe(row.name)}>
+                      Probe
+                    </button>
+                    {canManage && (
+                      <button style={buttonStyle('danger')} onClick={() => setRemoving(row.name)}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
       {showAdd && (
         <AddSourceModal
           sourceTypes={sourceTypes}
           onClose={() => setShowAdd(false)}
-          onAdded={() => { setShowAdd(false); refresh(); }}
+          onAdded={() => {
+            setShowAdd(false);
+            refresh();
+          }}
         />
       )}
 
       {removing && (
-        <RemoveSourceModal
-          name={removing}
-          removing={removeBusy}
-          onClose={() => setRemoving(null)}
-          onConfirm={confirmRemove}
-        />
+        <RemoveSourceModal name={removing} removing={removeBusy} onClose={() => setRemoving(null)} onConfirm={confirmRemove} />
       )}
     </div>
   );

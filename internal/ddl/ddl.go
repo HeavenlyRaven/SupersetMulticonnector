@@ -148,11 +148,22 @@ func AttachPostgres(sourceName string, p map[string]string) (Plan, error) {
 			Undo: &Statement{Text: fmt.Sprintf("DROP NAMED COLLECTION IF EXISTS %s", coll)},
 		},
 		{
-			Do:   Statement{Text: fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s ENGINE = PostgreSQL(%s)", db, coll)},
+			// COMMENT stashes the host non-secretly on the database
+			// itself, readable back via system.databases.comment — live-
+			// verified this is the only way to recover it later: ClickHouse
+			// redacts EVERY field in a named collection as [HIDDEN] when
+			// read back via system.named_collections, including
+			// non-secret ones like host, and "SHOW CREATE NAMED
+			// COLLECTION" (an earlier attempt at this) isn't even valid
+			// syntax. See hub.go's SourceHost, which reads this comment.
+			Do:   Statement{Text: fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s ENGINE = PostgreSQL(%s) COMMENT ?", db, coll), Args: []Arg{plain(hostComment(p["host"]))}},
 			Undo: &Statement{Text: fmt.Sprintf("DROP DATABASE IF EXISTS %s", db)},
 		},
 	}}, nil
 }
+
+// hostComment is the exact, parseable format hub.SourceHost expects.
+func hostComment(host string) string { return "host=" + host }
 
 // AttachMySQL builds the equivalent plan with ENGINE = MySQL(...) and no
 // schema parameter.
@@ -178,7 +189,7 @@ func AttachMySQL(sourceName string, p map[string]string) (Plan, error) {
 			Undo: &Statement{Text: fmt.Sprintf("DROP NAMED COLLECTION IF EXISTS %s", coll)},
 		},
 		{
-			Do:   Statement{Text: fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s ENGINE = MySQL(%s)", db, coll)},
+			Do:   Statement{Text: fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s ENGINE = MySQL(%s) COMMENT ?", db, coll), Args: []Arg{plain(hostComment(p["host"]))}},
 			Undo: &Statement{Text: fmt.Sprintf("DROP DATABASE IF EXISTS %s", db)},
 		},
 	}}, nil

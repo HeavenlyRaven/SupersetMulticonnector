@@ -25,7 +25,7 @@ func (sqliteType) HasCredentials() bool { return false }
 func (sqliteType) Fields() []Field {
 	return []Field{
 		{Name: "path", Label: "File", Type: "path", Required: true,
-			HelperText: "must already be seeded into the volume with `fedctl seed sqlite`"},
+			HelperText: "pick a file already uploaded, or upload a new one"},
 	}
 }
 

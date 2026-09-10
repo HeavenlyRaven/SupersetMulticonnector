@@ -60,8 +60,16 @@ func checkClickHouse(ctx context.Context, cfg config.App) error {
 	return conn.Ping(ctx)
 }
 
-func checkSuperset(ctx context.Context, cfg config.App) error {
-	url := strings.TrimRight(cfg.SupersetBaseURL, "/") + "/health"
+// checkSuperset always dials localhost:8088, never cfg.SupersetBaseURL:
+// this only ever runs from inside the superset container itself (Docker's
+// HEALTHCHECK directive execs `fedctl check superset` in-container), where
+// gunicorn always listens on its fixed internal port 8088 regardless of
+// what host port compose.yaml publishes it as (${SUPERSET_PORT:-8088},
+// user-configurable — a different, host-side concern; see
+// cmd/fedctl/superset.go's registerClickHouseConnection, which runs on
+// the host and does need that configurable port).
+func checkSuperset(ctx context.Context, _ config.App) error {
+	url := "http://localhost:8088/health"
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

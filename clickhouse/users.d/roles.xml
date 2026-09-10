@@ -12,10 +12,22 @@
   Passwords come from the environment via from_env, never written here in
   plaintext — see compose.yaml's environment block and .env.example.
 
-  NOTE: the exact GRANT syntax for NAMED COLLECTION CONTROL should be
-  re-verified against the pinned ClickHouse version (26.8) before
-  production use — see spec section 9 rule 5 and this repo's README
-  known-limitations section.
+  Live-verified against the pinned ClickHouse 26.8 release (see this
+  repo's README "Live-tested" section): every grant below is required —
+  NAMED COLLECTION CONTROL alone is not sufficient, fed_admin also needs
+  an explicit TABLE ENGINE grant per source type, or every attach fails
+  with "Not enough privileges."
+
+  The built-in `default` user is removed below, and compose.yaml sets
+  CLICKHOUSE_SKIP_USER_SETUP=1. Without both of these, the official
+  image's own entrypoint script tries to write its own
+  users.d/default-user.xml at startup (its normal behavior when it can't
+  tell the `default` user has already been dealt with) — and fails hard,
+  since users.d is bind-mounted read-only (spec section 4). We remove
+  `default` ourselves instead of leaving that to the entrypoint, since an
+  unmodified `default` user ships with no password and no network
+  restriction — exactly the open-access footgun the entrypoint's own
+  logic exists to prevent.
 -->
 <clickhouse>
     <profiles>
@@ -31,10 +43,31 @@
             <join_use_nulls>1</join_use_nulls>
             <use_query_cache>1</use_query_cache>
             <query_cache_ttl>60</query_cache_ttl>
+            <!-- Live-verified: Superset's own connection test/introspection
+                 queries (and some SQL Lab queries generally) call
+                 non-deterministic functions like version() or now(), which
+                 ClickHouse's query cache refuses by default —
+                 "QUERY_CACHE_USED_WITH_NONDETERMINISTIC_FUNCTIONS" — and
+                 without this, adding the ClickHouse connection in Superset
+                 fails outright before a single dashboard query ever runs.
+                 "ignore" runs those queries normally without caching them,
+                 rather than "save"-ing a result (e.g. now()) that would
+                 immediately go stale. -->
+            <query_cache_nondeterministic_function_handling>ignore</query_cache_nondeterministic_function_handling>
+            <!-- Live-verified, same story as the nondeterministic-function
+                 setting above: Superset's connection setup also queries
+                 system tables directly, which the query cache also
+                 refuses by default ("QUERY_CACHE_USED_WITH_SYSTEM_TABLE").
+                 -->
+            <query_cache_system_table_handling>ignore</query_cache_system_table_handling>
         </bi_readonly>
     </profiles>
 
     <users>
+        <!-- Remove the built-in anonymous/no-password user entirely —
+             only fed_admin and bi_ro should ever be able to connect. -->
+        <default remove="remove"></default>
+
         <fed_admin>
             <password from_env="CLICKHOUSE_FED_ADMIN_PASSWORD" />
             <networks>
@@ -42,11 +75,41 @@
             </networks>
             <profile>default</profile>
             <quota>default</quota>
-            <access_management>1</access_management>
+            <!-- Live-verified (ClickHouse 26.8): a user definition can't
+                 combine <access_management> with <grants> — "Any other
+                 access control settings can't be specified with
+                 `grants`". fed_admin doesn't need access_management
+                 anyway (it never creates/alters other users, roles, or
+                 grants — only databases and named collections), so
+                 <grants> alone is both the fix and the more correct,
+                 least-privilege choice. -->
             <grants>
                 <query>GRANT CREATE DATABASE, DROP DATABASE ON *.*</query>
                 <query>GRANT SELECT ON system.*</query>
                 <query>GRANT NAMED COLLECTION CONTROL ON *</query>
+                <!-- Live-verified: without these, every CREATE DATABASE
+                     ... ENGINE = X(...) fails with "Not enough
+                     privileges. To execute this query, it's necessary to
+                     have the grant TABLE ENGINE ON X" — a separate,
+                     per-engine privilege gating which storage engines a
+                     user may instantiate at all, independent of
+                     CREATE DATABASE itself. One per source type this
+                     repo supports (internal/sources). -->
+                <query>GRANT TABLE ENGINE ON PostgreSQL</query>
+                <query>GRANT TABLE ENGINE ON MySQL</query>
+                <query>GRANT TABLE ENGINE ON SQLite</query>
+                <!-- Live-verified: `GRANT SELECT ON system.*` does NOT
+                     make system.tables actually list rows for a
+                     federated database fed_admin doesn't hold SELECT on
+                     — ClickHouse filters system.tables per-row by the
+                     querying user's real access to each listed table,
+                     not just to the system table itself. SHOW TABLES is
+                     the correct, narrower privilege for "list what
+                     exists" without granting the ability to read actual
+                     row data (which fed_admin still deliberately lacks —
+                     see internal/hub.Conn.Probe's own SELECT, which
+                     runs as bi_ro, never fed_admin). -->
+                <query>GRANT SHOW TABLES ON *.*</query>
             </grants>
         </fed_admin>
 

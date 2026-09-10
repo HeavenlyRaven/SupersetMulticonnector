@@ -18,6 +18,7 @@ const (
 	CodeInvalidPath       = "INVALID_PATH"
 	CodeCredentialInArgs  = "CREDENTIAL_IN_ARGS"
 	CodeSourceExists      = "SOURCE_EXISTS"
+	CodeFileExists        = "FILE_EXISTS"
 	CodeSourceNotFound    = "SOURCE_NOT_FOUND"
 	CodeUnknownSourceType = "UNKNOWN_SOURCE_TYPE"
 	CodeConnectionFailed  = "CONNECTION_FAILED"

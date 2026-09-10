@@ -249,7 +249,7 @@ func (c *Conn) List(ctx context.Context) ([]SourceSummary, error) {
 		if tables, err := c.Tables(ctx, dbName); err == nil {
 			s.TableCount = len(tables)
 		}
-		if host, err := c.namedCollectionHost(ctx, databasePrefix+s.Name+"_creds"); err == nil {
+		if host, err := c.databaseHost(ctx, dbName); err == nil {
 			s.Host = host
 		}
 		out = append(out, s)
@@ -260,34 +260,39 @@ func (c *Conn) List(ctx context.Context) ([]SourceSummary, error) {
 	return out, nil
 }
 
-// namedCollectionHost best-effort extracts the "host" field from `SHOW
-// CREATE NAMED COLLECTION`, which ClickHouse redacts password-shaped keys
-// from. It never returns a value for a key that looks credential-shaped —
-// belt and braces alongside ClickHouse's own redaction. A parse failure
-// (e.g. no such collection, for sqlite sources) just yields "", not an
-// error, since host display is informational, not load-bearing.
-func (c *Conn) namedCollectionHost(ctx context.Context, collectionName string) (string, error) {
-	row := c.db.QueryRowContext(ctx, "SHOW CREATE NAMED COLLECTION "+validate.QuoteIdentifier(collectionName))
-	var ddlText string
-	if err := row.Scan(&ddlText); err != nil {
+// databaseHost extracts the host embedded in a federated database's own
+// COMMENT (set at CREATE DATABASE time by internal/ddl's hostComment — see
+// AttachPostgres/AttachMySQL). This is the only retrievable place a
+// federated source's host lives: ClickHouse redacts EVERY field of a named
+// collection, including non-secret ones like host, as [HIDDEN] when read
+// back via system.named_collections — live-verified there is no SQL-level
+// way to recover it from there, for anyone, ever. "SHOW CREATE NAMED
+// COLLECTION" (an earlier attempt at this) isn't even valid ClickHouse
+// syntax. A parse failure (e.g. sqlite sources, which have no host) just
+// yields "", not an error, since host display is informational, not
+// load-bearing.
+func (c *Conn) databaseHost(ctx context.Context, dbName string) (string, error) {
+	row := c.db.QueryRowContext(ctx, "SELECT comment FROM system.databases WHERE name = ?", dbName)
+	var comment string
+	if err := row.Scan(&comment); err != nil {
 		return "", err
 	}
-	m := showCreateFieldRe.FindStringSubmatch(ddlText)
+	m := hostCommentRe.FindStringSubmatch(comment)
 	if len(m) != 2 {
-		return "", jsonio.NewError(jsonio.CodeInternal, "could not parse SHOW CREATE NAMED COLLECTION output", "")
+		return "", jsonio.NewError(jsonio.CodeInternal, "no host recorded in database comment", "")
 	}
 	return m[1], nil
 }
 
-var showCreateFieldRe = regexp.MustCompile(`host\s*=\s*'([^']*)'`)
+var hostCommentRe = regexp.MustCompile(`^host=(.*)$`)
 
-// SourceHost is the exported form of namedCollectionHost for a source by
-// its (un-prefixed) name — used by `source remove` to report host in its
+// SourceHost is the exported form of databaseHost for a source by its
+// (un-prefixed) name — used by `source remove` to report host in its
 // response, which the Python shim's audit log needs (spec section 10:
 // "Audit every mutation ... user, source name, type, host, timestamp").
-// Empty string, no error, for sqlite sources (no named collection).
+// Empty string, no error, for sqlite sources (no host at all).
 func (c *Conn) SourceHost(ctx context.Context, sourceName string) string {
-	host, err := c.namedCollectionHost(ctx, databasePrefix+sourceName+"_creds")
+	host, err := c.databaseHost(ctx, databasePrefix+sourceName)
 	if err != nil {
 		return ""
 	}
@@ -298,7 +303,15 @@ func (c *Conn) SourceHost(ctx context.Context, sourceName string) string {
 // upstream source is actually reachable through ClickHouse right now
 // (distinct from Attach succeeding, which only proves the named
 // collection/database DDL was accepted — the upstream connection is lazy).
-func (c *Conn) Probe(ctx context.Context, database string) error {
+//
+// The catalog checks (self-check, table listing) run as c, but the final
+// data-touching query runs as reader, which must be bi_ro-authenticated:
+// fed_admin (what c always is, in every caller) deliberately has no SELECT
+// grant on federated data — live-verified a fed_admin-run SELECT against a
+// federated table fails with "Not enough privileges" — so reusing c here
+// would make every probe fail. reader is exactly the role Superset itself
+// queries as, so this proves what Superset would actually see.
+func (c *Conn) Probe(ctx context.Context, reader *Conn, database string) error {
 	row := c.db.QueryRowContext(ctx, "SELECT 1 FROM system.one")
 	var one int
 	if err := row.Scan(&one); err != nil {
@@ -316,7 +329,7 @@ func (c *Conn) Probe(ctx context.Context, database string) error {
 	// Touch the first table to force ClickHouse to actually open the
 	// upstream connection, not just read its own catalog.
 	q := fmt.Sprintf("SELECT count() FROM %s.%s", validate.QuoteIdentifier(database), validate.QuoteIdentifier(tables[0].Name))
-	if _, err := c.db.ExecContext(ctx, q); err != nil {
+	if _, err := reader.db.ExecContext(ctx, q); err != nil {
 		return jsonio.NewError(jsonio.CodeConnectionFailed, "probe query against upstream failed: "+err.Error(), "")
 	}
 	return nil

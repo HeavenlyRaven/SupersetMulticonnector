@@ -56,11 +56,21 @@ func LoadApp() (App, error) {
 		BIReadOnlyUser:      getenvDefault("SUPERSET_CH_USER", "bi_ro"),
 		BIReadOnlyPassword:  os.Getenv("SUPERSET_CH_PASSWORD"),
 		UserFilesDir:        getenvDefault("CLICKHOUSE_USER_FILES_DIR", "/var/lib/clickhouse/user_files"),
-		SupersetBaseURL:     getenvDefault("SUPERSET_BASE_URL", "http://superset:8088"),
 		SupersetMetadataURI: os.Getenv("SQLALCHEMY_DATABASE_URI"),
 		SupersetAdminUser:   os.Getenv("SUPERSET_ADMIN_USER"),
 		SupersetAdminPass:   os.Getenv("SUPERSET_ADMIN_PASSWORD"),
 	}
+
+	// SupersetBaseURL is used only by fedctl processes that run on the
+	// HOST (cmd/fedctl/superset.go's registerClickHouseConnection) — NOT
+	// by the in-container healthcheck, which always dials the fixed
+	// internal localhost:8088 directly (internal/health, live-verified:
+	// "superset" as a hostname only resolves inside the docker network,
+	// and the container's own internal port never changes even when the
+	// published host port does). So the default here follows
+	// SUPERSET_PORT — the host-published port — not the container's
+	// internal one.
+	a.SupersetBaseURL = getenvDefault("SUPERSET_BASE_URL", "http://localhost:"+getenvDefault("SUPERSET_PORT", "8088"))
 
 	port := getenvDefault("CLICKHOUSE_HTTP_PORT", "8123")
 	p, err := strconv.Atoi(port)

@@ -1,12 +1,14 @@
 import React, { useMemo, useState } from 'react';
-// @apache-superset/core/components re-exports Superset's own design
-// system (Ant Design-derived) — verify these exact names against the
-// live package if this fails to build; see README known limitations.
-import { Button, Modal, Input, Select } from '@apache-superset/core/components';
+import { components } from '@apache-superset/core';
 
 import { api } from './api';
+import Modal from './Modal';
+import SqliteFileField from './SqliteFileField';
+import { buttonStyle, helperTextStyle, inputStyle, labelStyle } from './styles';
 import type { SourceTypeInfo, ApiError } from './types';
 import { isApiError } from './types';
+
+const { Alert } = components;
 
 interface Props {
   sourceTypes: SourceTypeInfo[];
@@ -14,10 +16,9 @@ interface Props {
   onAdded: () => void;
 }
 
-// defaultParamsFor seeds form state with each field's declared default
-// (e.g. postgres port 5432, schema "public") — without this, an operator
-// who accepts a displayed default without retyping it submits an empty
-// value for that field and the request fails server-side.
+// Seeds form state with each field's declared default (e.g. postgres port
+// 5432, schema "public") — without this, an operator who accepts a
+// displayed default without retyping it submits an empty value instead.
 function defaultParamsFor(ty: SourceTypeInfo | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   ty?.fields.forEach((f) => {
@@ -80,55 +81,89 @@ export default function AddSourceModal({ sourceTypes, onClose, onAdded }: Props)
   }
 
   return (
-    <Modal title="Add federated source" onCancel={onClose} visible footer={null}>
+    <Modal
+      title="Add federated source"
+      onClose={onClose}
+      footer={
+        <>
+          <button style={buttonStyle('default')} onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            style={buttonStyle('default', testState === 'testing' || !name || !typeName)}
+            onClick={handleTest}
+            disabled={testState === 'testing' || !name || !typeName}
+          >
+            {testState === 'testing' ? 'Testing…' : 'Test connection'}
+          </button>
+          <button style={buttonStyle('primary', !canAdd || saving)} onClick={handleAdd} disabled={!canAdd || saving}>
+            {saving ? 'Adding…' : 'Add'}
+          </button>
+        </>
+      }
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <label>
+        <label style={labelStyle()}>
           Name
-          <Input value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setName(e.target.value); setTestState('idle'); }} placeholder="fed_sales" />
-        </label>
-
-        <label>
-          Type
-          <Select
-            value={typeName}
-            onChange={(v: string) => {
-              setTypeName(v);
-              setParams(defaultParamsFor(sourceTypes.find((t) => t.name === v)));
+          <input
+            style={inputStyle()}
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
               setTestState('idle');
             }}
-            options={sourceTypes.map((t) => ({ value: t.name, label: t.name }))}
+            placeholder="fed_sales"
           />
         </label>
 
+        <label style={labelStyle()}>
+          Type
+          <select
+            style={inputStyle()}
+            value={typeName}
+            onChange={(e) => {
+              setTypeName(e.target.value);
+              setParams(defaultParamsFor(sourceTypes.find((t) => t.name === e.target.value)));
+              setTestState('idle');
+            }}
+          >
+            {sourceTypes.map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
         {activeType?.fields.map((field) => (
-          <label key={field.name}>
+          <label style={labelStyle()} key={field.name}>
             {field.label}
             {field.required ? ' *' : ''}
-            <Input
-              type={field.type === 'password' ? 'password' : 'text'}
-              value={params[field.name] ?? field.default ?? ''}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setField(field.name, e.target.value)}
-            />
-            {field.helperText && <div style={{ fontSize: 12, opacity: 0.7 }}>{field.helperText}</div>}
+            {field.type === 'path' ? (
+              <SqliteFileField value={params[field.name] ?? ''} onChange={(v) => setField(field.name, v)} />
+            ) : (
+              <input
+                style={inputStyle()}
+                type={field.type === 'password' ? 'password' : 'text'}
+                value={params[field.name] ?? field.default ?? ''}
+                onChange={(e) => setField(field.name, e.target.value)}
+              />
+            )}
+            {field.helperText && <div style={helperTextStyle()}>{field.helperText}</div>}
           </label>
         ))}
 
         {testMessage && (
-          <div role="status" style={{ color: testState === 'ok' ? 'green' : 'crimson' }}>
+          <Alert type={testState === 'ok' ? 'success' : 'error'} showIcon>
             {testMessage}
-          </div>
+          </Alert>
         )}
-        {error && <div role="alert" style={{ color: 'crimson' }}>{error.message}{error.hint ? ` (${error.hint})` : ''}</div>}
-
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button onClick={handleTest} disabled={testState === 'testing' || !name || !typeName}>
-            {testState === 'testing' ? 'Testing…' : 'Test connection'}
-          </Button>
-          <Button type="primary" onClick={handleAdd} disabled={!canAdd || saving}>
-            {saving ? 'Adding…' : 'Add'}
-          </Button>
-        </div>
+        {error && (
+          <Alert type="error" showIcon>
+            {error.message}
+            {error.hint ? ` (${error.hint})` : ''}
+          </Alert>
+        )}
       </div>
     </Modal>
   );

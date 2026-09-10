@@ -4,7 +4,7 @@
 # pins this stage to the host's native platform so the Go compiler itself
 # never runs under emulation; TARGETOS/TARGETARCH drive cross-compilation
 # of the *output* binary instead (spec section 7).
-FROM --platform=$BUILDPLATFORM golang:1.23-bookworm@sha256:167053a2bb901972bf2c1611f8f52c44d5fe7e762e5cab213708d82c421614db AS fedctl-build
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS fedctl-build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
@@ -23,7 +23,25 @@ FROM apache/superset:6.1.0@sha256:59cd4af66006fe4cc98906eda42a771dbefdacb432f9ab
 
 USER root
 
-RUN pip install --no-cache-dir "clickhouse-connect[sqlalchemy]==1.7.2"
+# clickhouse-connect: the SQLAlchemy dialect Superset uses to query the
+# ClickHouse hub as a data source (section 12).
+# psycopg2-binary: live-verified this is also required — the base image
+# ships no PostgreSQL driver at all, so without this Superset can't even
+# connect to its own external metadata database (SQLALCHEMY_DATABASE_URI)
+# and fails at startup with "ModuleNotFoundError: No module named
+# 'psycopg2'", before ever getting to ClickHouse.
+#
+# Installed with `uv` (the tool this base image itself is built with),
+# not plain `pip` — also live-verified: Superset runs from a dedicated
+# venv at /app/.venv whose bin/python is a symlink back to the system
+# interpreter, so plain `pip --python /app/.venv/bin/python` resolves
+# that symlink and silently installs into system site-packages instead —
+# same failure as installing nothing. `uv pip install --python
+# /app/.venv/bin/python` correctly recognizes and targets the venv's own
+# site-packages regardless.
+RUN uv pip install --python /app/.venv/bin/python \
+    "clickhouse-connect[sqlalchemy]==1.7.2" \
+    "psycopg2-binary==2.9.13"
 
 COPY --from=fedctl-build /out/fedctl /usr/local/bin/fedctl
 RUN chmod 0755 /usr/local/bin/fedctl

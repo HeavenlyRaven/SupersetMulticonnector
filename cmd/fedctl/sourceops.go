@@ -132,14 +132,14 @@ func doTables(ctx context.Context, conn *hub.Conn, name string) (any, error) {
 	return conn.Tables(ctx, ddl.DatabaseName(name))
 }
 
-func doProbe(ctx context.Context, conn *hub.Conn, name string) (any, error) {
+func doProbe(ctx context.Context, conn *hub.Conn, reader *hub.Conn, name string) (any, error) {
 	if err := validate.SourceName(name); err != nil {
 		return nil, err
 	}
 	if _, err := conn.DatabaseEngine(ctx, ddl.DatabaseName(name)); err != nil {
 		return nil, err
 	}
-	if err := conn.Probe(ctx, ddl.DatabaseName(name)); err != nil {
+	if err := conn.Probe(ctx, reader, ddl.DatabaseName(name)); err != nil {
 		return nil, err
 	}
 	tables, err := conn.Tables(ctx, ddl.DatabaseName(name))

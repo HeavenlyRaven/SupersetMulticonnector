@@ -1,15 +1,16 @@
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "acme-ch_federation"
 version = "0.1.0"
+license = "Apache-2.0"
 description = "ClickHouse Federation extension backend for Apache Superset"
 requires-python = ">=3.10"
-dependencies = [
-    "apache-superset-core",
-]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.apache_superset_extensions.build]
+# Files to include in the extension build/bundle — matches the real
+# `superset-extensions init` scaffold's convention (live-verified: this
+# section is required for `superset-extensions bundle` to know which
+# backend files belong in the .supx).
+include = [
+    "src/acme/ch_federation/**/*.py",
+]
+exclude = []

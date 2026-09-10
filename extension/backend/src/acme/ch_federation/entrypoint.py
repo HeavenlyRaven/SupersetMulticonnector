@@ -15,6 +15,10 @@ from superset_core.rest_api.decorators import api
 
 FEDCTL_BIN = "/usr/local/bin/fedctl"
 FEDCTL_TIMEOUT_SECONDS = 30
+# A file write can legitimately take longer than a DDL call, especially for
+# a larger sample SQLite file — see cmd/fedctl/sqlitefiles.go's
+# maxSQLiteUploadBytes (200 MiB).
+FEDCTL_UPLOAD_TIMEOUT_SECONDS = 120
 
 audit_log = logging.getLogger("acme.ch_federation.audit")
 
@@ -29,24 +33,26 @@ ERROR_STATUS = {
     "UNKNOWN_SOURCE_TYPE": 400,
     "SOURCE_EXISTS": 409,
     "SOURCE_NOT_FOUND": 404,
+    "FILE_EXISTS": 409,
     "CONNECTION_FAILED": 502,
     "HUB_UNAVAILABLE": 502,
     "INTERNAL_ERROR": 500,
 }
 
 
-def _run_fedctl(args, payload=None):
-    """Exec fedctl <args> --json, request body on stdin, parse the
+def _exec_fedctl(args, stdin_bytes, timeout):
+    """Exec fedctl <args> --json with stdin_bytes on stdin, parse the
     response envelope. subprocess.run with a list, shell=False, an
-    explicit timeout, capture_output=True — credentials travel only on
-    stdin, never as argv or an environment variable."""
+    explicit timeout, capture_output=True — credentials (and, for an
+    upload, file contents) travel only on stdin, never as argv or an
+    environment variable."""
     try:
         proc = subprocess.run(
             [FEDCTL_BIN, *args, "--json"],
-            input=json.dumps(payload or {}).encode("utf-8"),
+            input=stdin_bytes,
             capture_output=True,
             shell=False,
-            timeout=FEDCTL_TIMEOUT_SECONDS,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         return None, {"code": "INTERNAL_ERROR", "message": "fedctl timed out", "hint": ""}
@@ -61,6 +67,18 @@ def _run_fedctl(args, payload=None):
     if envelope.get("ok"):
         return envelope.get("data"), None
     return None, envelope.get("error") or {"code": "INTERNAL_ERROR", "message": "unknown error"}
+
+
+def _run_fedctl(args, payload=None):
+    """JSON-request form of _exec_fedctl — every endpoint except the
+    SQLite file upload uses this."""
+    return _exec_fedctl(args, json.dumps(payload or {}).encode("utf-8"), FEDCTL_TIMEOUT_SECONDS)
+
+
+def _run_fedctl_upload(args, raw_bytes):
+    """Raw-bytes form of _exec_fedctl, for `source sqlite-files put` —
+    stdin is the uploaded file's contents directly, not a JSON envelope."""
+    return _exec_fedctl(args, raw_bytes, FEDCTL_UPLOAD_TIMEOUT_SECONDS)
 
 
 def _error_body(error):
@@ -85,7 +103,12 @@ def _can_manage(self):
 @api(id="ch_federation_api", name="ClickHouse Federation API",
      description="Manage live federated sources on the ClickHouse hub")
 class ChFederationAPI(RestApi):
-    resource_name = "ch_federation"
+    # Deliberately no resource_name: live-verified against the installed
+    # apache-superset-core package — passing one adds an extra path
+    # segment (/extensions/{publisher}/{name}/{resource_name}/{route}),
+    # which would make every endpoint below /extensions/acme/ch-federation
+    # /ch_federation/... instead of the documented
+    # /extensions/acme/ch-federation/... this file's endpoints assume.
 
     @expose("/source-types", methods=("GET",))
     @protect()
@@ -169,3 +192,44 @@ class ChFederationAPI(RestApi):
             body, status = _error_body(err)
             return self.response(status, **body)
         return self.response(200, result=data)
+
+    @expose("/sources/sqlite-files", methods=("GET",))
+    @protect()
+    @permission_name("read")
+    def list_sqlite_files(self):
+        data, err = _run_fedctl(["source", "sqlite-files", "list"])
+        if err:
+            body, status = _error_body(err)
+            return self.response(status, **body)
+        return self.response(200, result=data)
+
+    @expose("/sources/sqlite-files", methods=("POST",))
+    @protect()
+    @permission_name("manage")
+    def upload_sqlite_file(self):
+        # Powers the "Add source" file picker's Upload/Replace buttons: a
+        # browser file, no `fedctl seed sqlite` CLI step required.
+        # multipart/form-data, not JSON — the file's bytes go straight to
+        # fedctl's stdin via _run_fedctl_upload, never buffered as a JSON
+        # string. `overwrite=true` is the "Replace" action (SQLite has no
+        # live connection to re-read, so a fresh snapshot under the same
+        # name is how an operator refreshes a source's data) — without it
+        # fedctl refuses to touch an existing file, so a same-named
+        # "Upload" can't accidentally clobber one.
+        if not _can_manage(self):
+            return self.response_403()
+        uploaded = request.files.get("file")
+        if uploaded is None:
+            return self.response(400, message="a \"file\" field is required",
+                                  hint="send multipart/form-data with a file part")
+        name = (request.form.get("name") or uploaded.filename or "").strip()
+        overwrite = request.form.get("overwrite", "").strip().lower() in ("1", "true", "yes")
+        args = ["source", "sqlite-files", "put", "--name", name]
+        if overwrite:
+            args.append("--replace")
+        data, err = _run_fedctl_upload(args, uploaded.stream.read())
+        if err:
+            body, status = _error_body(err)
+            return self.response(status, **body)
+        _audit("source.sqlite_upload", name=(data or {}).get("name", name), replaced=str(overwrite))
+        return self.response(201, result=data)

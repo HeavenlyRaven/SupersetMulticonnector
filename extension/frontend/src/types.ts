@@ -27,6 +27,15 @@ export interface TableInfo {
   engine: string;
 }
 
+export interface SqliteFileInfo {
+  name: string;
+  sizeBytes: number;
+}
+
+export interface SqliteUploadResult extends SqliteFileInfo {
+  replaced: boolean;
+}
+
 export interface SourceListResult {
   sources: SourceSummary[];
   // Lets the UI present as read-only for a non-privileged viewer; the

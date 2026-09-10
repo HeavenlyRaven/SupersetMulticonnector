@@ -5,6 +5,17 @@
 # except the read-only ClickHouse config directories below (each with a
 # :z suffix for SELinux hosts). No secrets here — everything comes from
 # .env; see .env.example for every key.
+#
+# `name:` pins the Compose project name so container/volume names are
+# stable regardless of which directory this repo is checked out into
+# (Compose otherwise derives it from the directory's basename). fedctl
+# doesn't actually rely on this string being exact anywhere — `fedctl
+# seed sqlite` resolves the real ch-user-files volume via Compose's own
+# `com.docker.compose.volume` label rather than guessing a prefixed name,
+# specifically so a COMPOSE_PROJECT_NAME override (which takes precedence
+# over this field) can't silently break it the way a hardcoded prefix
+# would.
+name: superset-federation
 
 networks:
   federation:
@@ -33,6 +44,11 @@ services:
       CLICKHOUSE_FED_ADMIN_PASSWORD: ${FEDCTL_ADMIN_PASSWORD:?FEDCTL_ADMIN_PASSWORD must be set in .env}
       CLICKHOUSE_BI_RO_PASSWORD: ${SUPERSET_CH_PASSWORD:?SUPERSET_CH_PASSWORD must be set in .env}
       CLICKHOUSE_HOST: clickhouse
+      # We remove the built-in `default` user ourselves in
+      # users.d/roles.xml; without this, the official image's entrypoint
+      # tries to do the same thing itself and fails, since users.d is
+      # read-only (see that file's comment for the full explanation).
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
     ulimits:
       nofile:
         soft: 262144
@@ -60,8 +76,37 @@ services:
         condition: service_healthy
     ports:
       - "${SUPERSET_PORT:-8088}:8088"
+    # Adds supplementary group 101 (ClickHouse's "clickhouse" group, see
+    # images/clickhouse/Dockerfile) to this container's own UID, so it can
+    # write into ch-user-files below without running as ClickHouse's UID:
+    # live-verified the volume's user_files directory is owned 101:101 —
+    # without this, `fedctl source sqlite-files put` (the browser-upload
+    # endpoint's write) fails with permission denied even though the mount
+    # itself is read-write.
+    group_add:
+      - "101"
     volumes:
       - superset-home:/app/superset_home
+      # Live-verified: the Python shim execs fedctl inside THIS container
+      # (so docker-network hostnames resolve correctly for its SSRF host
+      # checks — see internal/validate.Host's doc comment), which means
+      # `fedctl source add --type sqlite` validates the requested path
+      # from here, not from the clickhouse container. Without also
+      # mounting ch-user-files here, that validation always fails with
+      # "cannot resolve user_files directory". A named volume mounted
+      # into two services is a normal, encouraged Docker pattern — unlike
+      # a bind mount, it isn't what spec section 4's "no bind mounts"
+      # rule is about.
+      #
+      # Read-write (not :ro): the extension's browser upload flow
+      # (`fedctl source sqlite-files put`, invoked by the Python shim's
+      # POST /sources/sqlite-files) writes an uploaded SQLite file
+      # directly into this volume from inside this container — there is
+      # no docker socket or host filesystem access available here to
+      # shell out to `fedctl seed sqlite` instead, and browser uploads
+      # need one either way. `fedctl seed sqlite` (host-side, for
+      # arbitrary host files) still works unchanged alongside this.
+      - ch-user-files:/var/lib/clickhouse/user_files
     env_file:
       - .env
     environment:

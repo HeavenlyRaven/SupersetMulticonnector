@@ -24,6 +24,7 @@ func newSourceCmd() *cobra.Command {
 	cmd.AddCommand(newSourceTestCmd())
 	cmd.AddCommand(newSourceTablesCmd())
 	cmd.AddCommand(newSourceProbeCmd())
+	cmd.AddCommand(newSQLiteFilesCmd())
 	return cmd
 }
 
@@ -299,7 +300,12 @@ func newSourceProbeCmd() *cobra.Command {
 				return writeOrPrintError(jsonMode, err)
 			}
 			defer conn.Close()
-			result, err := doProbe(ctx, conn, name)
+			reader, err := openBIReadOnly(ctx, app)
+			if err != nil {
+				return writeOrPrintError(jsonMode, err)
+			}
+			defer reader.Close()
+			result, err := doProbe(ctx, conn, reader, name)
 			return finish(jsonMode, result, err)
 		},
 	}

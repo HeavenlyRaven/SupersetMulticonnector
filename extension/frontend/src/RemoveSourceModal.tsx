@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Button, Modal, Input } from '@apache-superset/core/components';
+
+import Modal from './Modal';
+import { buttonStyle, inputStyle } from './styles';
 
 interface Props {
   name: string;
@@ -14,15 +16,24 @@ interface Props {
 export default function RemoveSourceModal({ name, onClose, onConfirm, removing }: Props) {
   const [typed, setTyped] = useState('');
   return (
-    <Modal title={`Remove source "${name}"?`} onCancel={onClose} visible footer={null}>
-      <p>This detaches the database and named collection from ClickHouse. Type <strong>{name}</strong> to confirm.</p>
-      <Input value={typed} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTyped(e.target.value)} />
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button danger onClick={onConfirm} disabled={typed !== name || removing}>
-          {removing ? 'Removing…' : 'Remove'}
-        </Button>
-      </div>
+    <Modal
+      title={`Remove source "${name}"?`}
+      onClose={onClose}
+      footer={
+        <>
+          <button style={buttonStyle('default')} onClick={onClose}>
+            Cancel
+          </button>
+          <button style={buttonStyle('danger', typed !== name || removing)} onClick={onConfirm} disabled={typed !== name || removing}>
+            {removing ? 'Removing…' : 'Remove'}
+          </button>
+        </>
+      }
+    >
+      <p>
+        This detaches the database and named collection from ClickHouse. Type <strong>{name}</strong> to confirm.
+      </p>
+      <input style={inputStyle()} value={typed} onChange={(e) => setTyped(e.target.value)} />
     </Modal>
   );
 }

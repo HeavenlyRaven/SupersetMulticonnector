@@ -56,9 +56,12 @@ func TestAttachPostgres_Golden(t *testing.T) {
 		t.Errorf("database-create statement should have no secret args, got %v", plan.Steps[1].Do.Secrets())
 	}
 
-	wantDB := "CREATE DATABASE IF NOT EXISTS `fed_fed_sales` ENGINE = PostgreSQL(`fed_fed_sales_creds`)"
+	wantDB := "CREATE DATABASE IF NOT EXISTS `fed_fed_sales` ENGINE = PostgreSQL(`fed_fed_sales_creds`) COMMENT ?"
 	if plan.Steps[1].Do.Text != wantDB {
 		t.Errorf("database DDL mismatch:\n got: %s\nwant: %s", plan.Steps[1].Do.Text, wantDB)
+	}
+	if got := plan.Steps[1].Do.Values(); len(got) != 1 || got[0] != "host=pg.internal" {
+		t.Errorf("expected database comment to embed the host, got %v", got)
 	}
 
 	if plan.Steps[0].Undo == nil || plan.Steps[0].Undo.Text != "DROP NAMED COLLECTION IF EXISTS `fed_fed_sales_creds`" {
@@ -121,9 +124,12 @@ func TestAttachMySQL_Golden(t *testing.T) {
 	if plan.Steps[0].Do.Text != wantColl {
 		t.Errorf("collection DDL mismatch:\n got: %s\nwant: %s", plan.Steps[0].Do.Text, wantColl)
 	}
-	wantDB := "CREATE DATABASE IF NOT EXISTS `fed_fed_orders` ENGINE = MySQL(`fed_fed_orders_creds`)"
+	wantDB := "CREATE DATABASE IF NOT EXISTS `fed_fed_orders` ENGINE = MySQL(`fed_fed_orders_creds`) COMMENT ?"
 	if plan.Steps[1].Do.Text != wantDB {
 		t.Errorf("database DDL mismatch:\n got: %s\nwant: %s", plan.Steps[1].Do.Text, wantDB)
+	}
+	if got := plan.Steps[1].Do.Values(); len(got) != 1 || got[0] != "host=mysql.internal" {
+		t.Errorf("expected database comment to embed the host, got %v", got)
 	}
 }
 

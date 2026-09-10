@@ -53,6 +53,27 @@ func openHub(ctx context.Context, app config.App) (*hub.Conn, error) {
 	}, stderrLogger)
 }
 
+// openBIReadOnly opens a hub.Conn authenticated as bi_ro — used only for
+// Probe's actual data-reading touch query. fed_admin deliberately has no
+// SELECT privilege on federated databases (see clickhouse/users.d/roles.xml:
+// it only gets CREATE/DROP DATABASE, NAMED COLLECTION CONTROL, TABLE ENGINE,
+// and SHOW TABLES — never SELECT on federated data), so a probe run as
+// fed_admin fails with "Not enough privileges" — live-verified. bi_ro is the
+// same role Superset itself connects as, so this proves exactly what
+// Superset would see.
+func openBIReadOnly(ctx context.Context, app config.App) (*hub.Conn, error) {
+	if app.BIReadOnlyPassword == "" {
+		return nil, jsonio.NewError(jsonio.CodeInternal,
+			"SUPERSET_CH_PASSWORD is not set", "check .env against .env.example")
+	}
+	return hub.Open(ctx, hub.DialConfig{
+		Host:     app.ClickHouseHost,
+		Port:     9000,
+		User:     app.BIReadOnlyUser,
+		Password: app.BIReadOnlyPassword,
+	}, stderrLogger)
+}
+
 // allowlist builds the SSRF allowlist from app config.
 func allowlist(app config.App) *validate.Allowlist {
 	return validate.NewAllowlist(app.AllowedSourceHosts)

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM --platform=$BUILDPLATFORM golang:1.23-bookworm@sha256:167053a2bb901972bf2c1611f8f52c44d5fe7e762e5cab213708d82c421614db AS fedctl-build
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS fedctl-build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
@@ -18,6 +18,20 @@ FROM clickhouse/clickhouse-server:26.8.1.2041@sha256:9f8fa0d51f86611fda226c4085c
 
 COPY --from=fedctl-build /out/fedctl /usr/local/bin/fedctl
 RUN chmod 0755 /usr/local/bin/fedctl
+
+# Pre-create user_files here (rather than letting the ClickHouse server
+# create it on first start, which it does at 0755) so Docker's "seed an
+# empty named volume from the image's content at that path" behavior gives
+# every fresh deployment a group-writable directory from the start. Group
+# 101 (numeric — matches this base image's "clickhouse" group, live-
+# verified via `getent group 101`) plus compose.yaml's `group_add: ["101"]`
+# on the superset service is what lets the extension's browser-upload
+# endpoint (running as the superset image's own UID inside that other
+# container, sourceops `sqlite-files put`) write a new SQLite file into
+# this same volume without needing to run as the clickhouse UID itself.
+RUN mkdir -p /var/lib/clickhouse/user_files \
+    && chown 101:101 /var/lib/clickhouse/user_files \
+    && chmod 0775 /var/lib/clickhouse/user_files
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
     CMD ["/usr/local/bin/fedctl", "check", "clickhouse"]

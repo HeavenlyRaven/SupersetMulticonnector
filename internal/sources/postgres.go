@@ -62,7 +62,7 @@ func (postgresType) Validate(_ string, params Params) (Params, error) {
 // connection failure even after Host/Port are overwritten — an SSRF
 // guard bypass, since those addresses never pass through validate.Host.
 // Building cfg from an explicit connection string avoids the fallback
-// population in the first place; clearing Fallbacks afterward is
+// population in the first place; filtering Fallbacks afterward (below) is
 // defense in depth in case pgx's parser ever adds one anyway.
 func postgresConnConfig(p Params) (*pgx.ConnConfig, error) {
 	u := &url.URL{
@@ -80,12 +80,31 @@ func postgresConnConfig(p Params) (*pgx.ConnConfig, error) {
 	if err != nil {
 		return nil, jsonio.NewError(jsonio.CodeInternal, "building postgres connection config: "+err.Error(), "")
 	}
-	cfg.Fallbacks = nil
 	if cfg.Host != p["host"] || int(cfg.Port) != atoiOrZero(p["port"]) {
 		// Defense in depth: if pgx ever resolved to a different primary
 		// host/port than what we asked for, refuse rather than dial it.
 		return nil, jsonio.NewError(jsonio.CodeInternal, "postgres connection config did not match the requested host/port", "")
 	}
+	// Keep only fallbacks that target the SAME host:port as cfg itself —
+	// that's exactly how pgx/pgconn implements sslmode=prefer's graceful
+	// TLS-then-plaintext retry (pgconn.FallbackConfig's own doc comment:
+	// "used for TLS fallback such as sslmode=prefer"), not a different
+	// address. Live-verified dropping every fallback unconditionally (the
+	// previous behavior here) broke that retry entirely: a server that
+	// declines TLS — completely normal for a local/dev Postgres with no
+	// TLS configured — made pgx hard-fail with "tls error: server refused
+	// TLS connection" instead of continuing on the same connection in
+	// plaintext, even though psql/libpq against the identical server
+	// downgrades and connects fine. Any fallback pointing at a DIFFERENT
+	// host/port (the actual SSRF-relevant case, e.g. libpq-style
+	// 127.0.0.1/::1 defaults) is still stripped.
+	kept := cfg.Fallbacks[:0]
+	for _, fb := range cfg.Fallbacks {
+		if fb.Host == cfg.Host && fb.Port == cfg.Port {
+			kept = append(kept, fb)
+		}
+	}
+	cfg.Fallbacks = kept
 	return cfg, nil
 }
 

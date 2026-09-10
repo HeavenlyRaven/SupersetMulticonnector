@@ -6,17 +6,44 @@
   the ch-user-files named volume is mounted in compose.yaml.
 -->
 <clickhouse>
+    <!-- Live-verified (ClickHouse 26.8): without this, the server binds
+         its HTTP/native ports to 127.0.0.1 only — reachable from nothing
+         else on the docker network, including Superset's own connection
+         and this container's own HEALTHCHECK (which dials the "clickhouse"
+         service hostname, not loopback). The container boundary is
+         already the access boundary here (the port is never published to
+         the host — see compose.yaml — and the network is internal-only),
+         so listening on all interfaces inside the container is exactly
+         as exposed as spec section 6 intends.
+
+         IPv4 only, deliberately: also live-verified, a "::" (IPv6-any)
+         listen_host fails hard on a docker bridge network without IPv6
+         enabled ("Address family for hostname not supported") — which is
+         the common case, since Docker doesn't enable IPv6 on the default
+         bridge driver unless explicitly configured. Add "::" back only
+         if this stack's docker network has IPv6 turned on. -->
+    <listen_host>0.0.0.0</listen_host>
+
     <!-- Honour the container's memory limit (deploy.resources.limits.memory
          in compose.yaml) instead of reading host RAM, which would let
          ClickHouse think it has the whole machine to itself. -->
     <max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>
 
-    <!-- Bounded TTL so the query log volume cannot grow without limit. -->
+    <!-- Bounded TTL so the query log volume cannot grow without limit.
+         Live-verified (ClickHouse 26.8): a custom <engine> clause here
+         conflicts with the <partition_by> that ClickHouse's own base
+         config.xml already sets for query_log (XML config layers merge
+         per-element, so that inherited <partition_by> survives even
+         though this file never mentions it) — "PARTITION BY parameters
+         should be specified directly inside 'engine' and 'partition_by'
+         setting doesn't make sense." Using the dedicated <ttl> key
+         instead of a custom <engine> avoids the conflict entirely and is
+         the documented way to bound a system log's retention. -->
     <query_log>
         <database>system</database>
         <table>query_log</table>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
-        <engine>ENGINE = MergeTree PARTITION BY event_date ORDER BY event_time TTL event_date + INTERVAL 14 DAY</engine>
+        <ttl>event_date + INTERVAL 14 DAY DELETE</ttl>
     </query_log>
 
     <!-- Server-level query cache size bounds. Per-query/per-user opt-in

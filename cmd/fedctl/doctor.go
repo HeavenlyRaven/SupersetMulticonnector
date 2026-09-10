@@ -27,6 +27,13 @@ func newDoctorCmd() *cobra.Command {
 			}
 			defer conn.Close()
 
+			reader, err := openBIReadOnly(ctx, app)
+			if err != nil {
+				printCLIError(err)
+				return err
+			}
+			defer reader.Close()
+
 			list, err := conn.List(ctx)
 			if err != nil {
 				printCLIError(err)
@@ -38,7 +45,7 @@ func newDoctorCmd() *cobra.Command {
 			anyFailed := false
 			for _, s := range list {
 				status := "ok"
-				if err := conn.Probe(ctx, ddl.DatabaseName(s.Name)); err != nil {
+				if err := conn.Probe(ctx, reader, ddl.DatabaseName(s.Name)); err != nil {
 					status = "FAILED: " + err.Error()
 					anyFailed = true
 				}

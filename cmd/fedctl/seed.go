@@ -67,10 +67,25 @@ func newSeedSQLiteCmd() *cobra.Command {
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 			defer cancel()
+
+			// Live-verified: a bare `-v ch-user-files:/dest` here creates
+			// or references an unprefixed volume literally named
+			// "ch-user-files" — a completely different volume from the
+			// one Compose actually mounts into clickhouse/superset,
+			// which it names using the project name (e.g.
+			// "superset-federation_ch-user-files"). Seeding silently
+			// "succeeded" into a volume nothing ever reads. Resolve the
+			// real volume via Compose's own labels instead of guessing.
+			volume, err := resolveComposeVolume(ctx, "ch-user-files")
+			if err != nil {
+				printCLIError(err)
+				return err
+			}
+
 			dockerArgs := []string{
 				"run", "--rm",
 				"-v", hostDir + ":/src:ro,z",
-				"-v", "ch-user-files:/dest",
+				"-v", volume + ":/dest",
 				ClickHouseBaseImage,
 				"cp", "/src/" + base, "/dest/" + dest,
 			}

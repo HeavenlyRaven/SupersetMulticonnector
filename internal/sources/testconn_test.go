@@ -51,13 +51,28 @@ func TestSQLiteType_TestConnection_MissingFile(t *testing.T) {
 	}
 }
 
-// TestPostgresConnConfig_NoFallbackLeak is a regression test for a real
-// bug found in review: pgx.ParseConfig("") followed by overwriting
-// Host/Port leaves pgx's libpq-style Fallbacks (127.0.0.1, ::1) intact,
-// so pgx would still dial loopback addresses that never passed through
-// validate.Host — a genuine SSRF-guard bypass. This asserts the fix
-// (building from an explicit connection string, then clearing Fallbacks)
-// holds for both a plain hostname and a public IP.
+// TestPostgresConnConfig_NoFallbackLeak is a regression test for two real
+// bugs found in review, in sequence.
+//
+// First: pgx.ParseConfig("") followed by overwriting Host/Port leaves
+// pgx's libpq-style Fallbacks (127.0.0.1, ::1) intact, so pgx would still
+// dial loopback addresses that never passed through validate.Host — a
+// genuine SSRF-guard bypass.
+//
+// Second (the original fix for the first bug, here corrected): clearing
+// every fallback unconditionally broke sslmode=prefer's legitimate
+// TLS-then-plaintext retry, which pgx implements via a same-host,
+// same-port Fallback entry (pgconn.FallbackConfig's own doc comment:
+// "used for TLS fallback such as sslmode=prefer") — live-verified against
+// a real Postgres server with no TLS configured, where the
+// fallbacks-always-nil version made "Test connection" hard-fail with
+// "tls error: server refused TLS connection" even though the identical
+// server accepts a plain libpq/psql connection fine, and even though
+// ClickHouse's own PostgreSQL engine connects to it without any issue.
+//
+// So the correct invariant, asserted here: every surviving fallback must
+// target the exact same host:port as cfg itself — never a different
+// address — regardless of whether the list is empty or not.
 func TestPostgresConnConfig_NoFallbackLeak(t *testing.T) {
 	for _, host := range []string{"pg.example.internal", "203.0.113.5"} {
 		cfg, err := postgresConnConfig(Params{
@@ -66,8 +81,11 @@ func TestPostgresConnConfig_NoFallbackLeak(t *testing.T) {
 		if err != nil {
 			t.Fatalf("host %q: unexpected error: %v", host, err)
 		}
-		if len(cfg.Fallbacks) != 0 {
-			t.Errorf("host %q: expected no fallback addresses, got %d: %+v", host, len(cfg.Fallbacks), cfg.Fallbacks)
+		for _, fb := range cfg.Fallbacks {
+			if fb.Host != cfg.Host || fb.Port != cfg.Port {
+				t.Errorf("host %q: fallback dials %s:%d, a different address than the validated host %s:%d",
+					host, fb.Host, fb.Port, cfg.Host, cfg.Port)
+			}
 		}
 		if cfg.Host != host {
 			t.Errorf("host %q: cfg.Host = %q, want exact match", host, cfg.Host)
