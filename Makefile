@@ -57,13 +57,28 @@ installer-windows:
 # packaging/nfpm.yaml. Requires nfpm and the linux binaries from
 # cross-build:
 #   go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+#
+# nfpm's own ${VAR} expansion turned out not to reach contents[].src (that
+# field is resolved as a filesystem glob against the literal, unexpanded
+# text — live-verified against a real CI run, which failed with "Glob
+# failed: ./dist/fedctl-linux-${ARCH}: no matching files"). Rather than
+# trust nfpm's expansion in the fields where it happens to work and not
+# in the one where it doesn't, every occurrence is substituted by hand
+# with sed into a rendered copy, so nfpm never has to expand anything.
+#
+# `$$` (not `$`) before {ARCH}/{VERSION} is deliberate: Make treats an
+# unescaped ${X} as its OWN variable reference and would silently expand
+# it to an empty string before the shell ever sees it. `$$` is Make's
+# escape for a literal `$`, so `$${ARCH}` is what actually reaches sed.
 packages-linux: cross-build
-	ARCH=amd64 VERSION=$(PKG_VERSION) nfpm package --config packaging/nfpm.yaml --packager deb --target dist/
-	ARCH=amd64 VERSION=$(PKG_VERSION) nfpm package --config packaging/nfpm.yaml --packager rpm --target dist/
-	ARCH=amd64 VERSION=$(PKG_VERSION) nfpm package --config packaging/nfpm.yaml --packager apk --target dist/
-	ARCH=arm64 VERSION=$(PKG_VERSION) nfpm package --config packaging/nfpm.yaml --packager deb --target dist/
-	ARCH=arm64 VERSION=$(PKG_VERSION) nfpm package --config packaging/nfpm.yaml --packager rpm --target dist/
-	ARCH=arm64 VERSION=$(PKG_VERSION) nfpm package --config packaging/nfpm.yaml --packager apk --target dist/
+	sed -e 's/$${ARCH}/amd64/g' -e 's/$${VERSION}/$(PKG_VERSION)/g' packaging/nfpm.yaml > dist/nfpm-amd64.yaml
+	nfpm package --config dist/nfpm-amd64.yaml --packager deb --target dist/
+	nfpm package --config dist/nfpm-amd64.yaml --packager rpm --target dist/
+	nfpm package --config dist/nfpm-amd64.yaml --packager apk --target dist/
+	sed -e 's/$${ARCH}/arm64/g' -e 's/$${VERSION}/$(PKG_VERSION)/g' packaging/nfpm.yaml > dist/nfpm-arm64.yaml
+	nfpm package --config dist/nfpm-arm64.yaml --packager deb --target dist/
+	nfpm package --config dist/nfpm-arm64.yaml --packager rpm --target dist/
+	nfpm package --config dist/nfpm-arm64.yaml --packager apk --target dist/
 
 # Verifies every file carrying a copy of the version agrees with VERSION.
 # Run before tagging; the release workflow runs it too and refuses to

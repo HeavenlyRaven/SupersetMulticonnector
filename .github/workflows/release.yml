@@ -201,11 +201,20 @@ jobs:
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
 
       - name: Build .deb / .rpm / .apk
+        # nfpm's own ${VAR} expansion does not reach contents[].src — that
+        # field is resolved as a filesystem glob against the literal,
+        # unexpanded text (live-verified: a real run of the ARCH=$arch
+        # env-var form failed with "Glob failed:
+        # ./dist/fedctl-linux-${ARCH}: no matching files"). Rendering the
+        # config with sed first, instead of relying on nfpm to expand
+        # anything, sidesteps that regardless of which nfpm fields do or
+        # don't support expansion.
         run: |
+          version="${{ needs.version.outputs.version }}"
           for arch in amd64 arm64; do
+            sed -e "s/\${ARCH}/$arch/g" -e "s/\${VERSION}/$version/g" packaging/nfpm.yaml > "dist/nfpm-$arch.yaml"
             for pkg in deb rpm apk; do
-              ARCH=$arch VERSION=${{ needs.version.outputs.version }} \
-                nfpm package --config packaging/nfpm.yaml --packager $pkg --target dist/
+              nfpm package --config "dist/nfpm-$arch.yaml" --packager "$pkg" --target dist/
             done
           done
 

@@ -156,10 +156,15 @@ Type: dirifempty; Name: "{app}"
 
 [Code]
 
-{ ---------------------------------------------------------------------
-  PATH handling: only append {app} if it is not already present, so
-  repeated installs don't grow the variable without bound.
-  --------------------------------------------------------------------- }
+// PATH handling: only append the install directory if it is not already
+// present, so repeated installs don't grow the variable without bound.
+//
+// This is a `//` comment, not a `{ }` one, on purpose: Pascal Script's
+// brace comments don't nest, and the install-directory placeholder is
+// itself written {app} — its own closing brace would silently end a { }
+// comment early, dumping the rest of the sentence into real code and
+// producing a baffling "'BEGIN' expected" error pointing at prose, not a
+// bug. `//` comments have no closing delimiter to collide with.
 function NeedsAddPath(Param: string): Boolean;
 var
   OrigPath: string;
@@ -169,15 +174,13 @@ begin
     Result := True;
     Exit;
   end;
-  { Pad with semicolons so a partial match can't produce a false positive. }
+  // Pad with semicolons so a partial match can't produce a false positive.
   Result := Pos(';' + Lowercase(Param) + ';', ';' + Lowercase(OrigPath) + ';') = 0;
 end;
 
-{ ---------------------------------------------------------------------
-  Docker detection. This checks only that the `docker` CLI answers — not
-  that the daemon is running, which is a separate condition `fedctl
-  preflight` reports properly at first run.
-  --------------------------------------------------------------------- }
+// Docker detection. This checks only that the `docker` CLI answers — not
+// that the daemon is running, which is a separate condition `fedctl
+// preflight` reports properly at first run.
 function IsDockerPresent(): Boolean;
 var
   ResultCode: Integer;
