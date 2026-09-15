@@ -19,7 +19,7 @@
 ; Guarded so the release workflow's `ISCC /DAppVersion=1.2.3` wins. An
 ; unguarded #define would silently override the command line.
 #ifndef AppVersion
-  #define AppVersion   "0.1.1"
+  #define AppVersion   "0.1.2"
 #endif
 #define AppPublisher   "HeavenlyRaven"
 #define AppURL         "https://github.com/HeavenlyRaven/SupersetMulticonnector"
