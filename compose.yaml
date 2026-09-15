@@ -36,7 +36,7 @@ services:
     #
     # Override the registry/tag to run your own build:
     #   FEDERATION_CLICKHOUSE_IMAGE=myrepo/clickhouse:dev fedctl up
-    image: ${FEDERATION_CLICKHOUSE_IMAGE:-ghcr.io/heavenlyraven/supersetmulticonnector/clickhouse:0.1.0}
+    image: ${FEDERATION_CLICKHOUSE_IMAGE:-ghcr.io/heavenlyraven/supersetmulticonnector/clickhouse:0.1.1}
     build:
       context: .
       dockerfile: images/clickhouse/Dockerfile
@@ -76,7 +76,7 @@ services:
   superset:
     # See the clickhouse service above for why both image: and build: are
     # declared here.
-    image: ${FEDERATION_SUPERSET_IMAGE:-ghcr.io/heavenlyraven/supersetmulticonnector/superset:0.1.0}
+    image: ${FEDERATION_SUPERSET_IMAGE:-ghcr.io/heavenlyraven/supersetmulticonnector/superset:0.1.1}
     build:
       context: .
       dockerfile: images/superset/Dockerfile
