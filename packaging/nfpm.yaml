@@ -70,6 +70,25 @@ contents:
   - src: ./dev/mysql-init/001-sample.sql
     dst: /usr/share/superset-federation/dev/mysql-init/001-sample.sql
 
+  # test/testkit — disposable databases for `fedctl testkit up`. Listed
+  # file by file, matching every other entry above, rather than pointing
+  # `src` at the directory: nfpm's own ${VAR} expansion turned out not to
+  # reach every field it plausibly should (see the Makefile's
+  # packages-linux target), so an unverified assumption about a SECOND
+  # nfpm behavior isn't a risk worth taking here without nfpm installed to
+  # actually check it against. Whoever adds a file to test/testkit/ next
+  # needs to add a line here too.
+  - src: ./test/testkit/compose.yaml
+    dst: /usr/share/superset-federation/test/testkit/compose.yaml
+  - src: ./test/testkit/init/postgres/001-sample.sql
+    dst: /usr/share/superset-federation/test/testkit/init/postgres/001-sample.sql
+  - src: ./test/testkit/init/mysql/001-sample.sql
+    dst: /usr/share/superset-federation/test/testkit/init/mysql/001-sample.sql
+  - src: ./test/testkit/region_notes.sqlite
+    dst: /usr/share/superset-federation/test/testkit/region_notes.sqlite
+  - src: ./test/testkit/README.md
+    dst: /usr/share/superset-federation/test/testkit/README.md
+
   # --- Documentation ------------------------------------------------------
   - src: ./docs/INSTALL.md
     dst: /usr/share/doc/superset-federation/INSTALL.md

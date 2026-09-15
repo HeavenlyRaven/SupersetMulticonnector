@@ -58,6 +58,15 @@ services:
       # tries to do the same thing itself and fails, since users.d is
       # read-only (see that file's comment for the full explanation).
       CLICKHOUSE_SKIP_USER_SETUP: "1"
+    # host.docker.internal resolves from inside this container without any
+    # help on Windows/macOS Docker Desktop — Desktop's own DNS provides it.
+    # On plain Linux Docker Engine (no Desktop layer) it does not, unless
+    # told to: "host-gateway" is Docker's own sentinel value meaning "the
+    # real IP of the host machine, whatever it is." Needed for attaching a
+    # source that lives on the host itself, and for `fedctl testkit` (see
+    # test/testkit/) — harmless and inert otherwise.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ulimits:
       nofile:
         soft: 262144
@@ -123,6 +132,12 @@ services:
     environment:
       CLICKHOUSE_HOST: clickhouse
       SQLALCHEMY_DATABASE_URI: ${SQLALCHEMY_DATABASE_URI:?SQLALCHEMY_DATABASE_URI must be set in .env — see README}
+    # See the clickhouse service above for why this is here. This one
+    # matters more: SQLALCHEMY_DATABASE_URI is read from inside THIS
+    # container for as long as the container runs, not just once, so if it
+    # names host.docker.internal, that name has to keep resolving here.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     deploy:
       resources:
         limits:

@@ -163,10 +163,19 @@ type composePsRow struct {
 // rather than fedctl (running on the host) trying to dial the internal
 // docker network directly.
 func waitHealthy(ctx context.Context, dev bool, timeout time.Duration) error {
+	return waitComposeHealthy(ctx, runComposeArgs(dev), timeout)
+}
+
+// waitComposeHealthy is waitHealthy's actual implementation, generalized
+// over which compose file(s) to poll — composeArgsPrefix is everything
+// before the subcommand, e.g. ["compose", "-f", "compose.yaml"]. Shared
+// with `fedctl testkit up` (see testkit.go), which polls a completely
+// different compose file but needs the identical wait-and-report logic.
+func waitComposeHealthy(ctx context.Context, composeArgsPrefix []string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var lastStatus string
 	for {
-		rows, err := composePS(ctx, dev)
+		rows, err := composePS(ctx, composeArgsPrefix)
 		if err == nil {
 			allHealthy := len(rows) > 0
 			var statuses []string
@@ -198,8 +207,12 @@ func waitHealthy(ctx context.Context, dev bool, timeout time.Duration) error {
 	}
 }
 
-func composePS(ctx context.Context, dev bool) ([]composePsRow, error) {
-	out, err := runDockerComposeOutput(ctx, runComposeArgs(dev, "ps", "--format", "json"))
+// composePS runs `docker compose <composeArgsPrefix...> ps --format json`
+// and parses the result, tolerating both output shapes different Compose
+// versions produce (one JSON object per line, or a single JSON array).
+func composePS(ctx context.Context, composeArgsPrefix []string) ([]composePsRow, error) {
+	args := append(append([]string{}, composeArgsPrefix...), "ps", "--format", "json")
+	out, err := runDockerComposeOutput(ctx, args)
 	if err != nil {
 		return nil, fmt.Errorf("docker compose ps failed: %w: %s", err, out)
 	}

@@ -97,9 +97,12 @@ Source: "{#RepoRoot}\clickhouse\config.d\*"; DestDir: "{app}\clickhouse\config.d
 Source: "{#RepoRoot}\clickhouse\users.d\*";  DestDir: "{app}\clickhouse\users.d";  Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; --- Optional runtime extras ---------------------------------------------
-; config/sources.yaml powers `fedctl apply`; dev/ powers `fedctl up --dev`.
+; config/sources.yaml powers `fedctl apply`; dev/ powers `fedctl up --dev`;
+; test/testkit powers `fedctl testkit up` — three disposable databases for
+; exercising this very install, never touched by the real product.
 Source: "{#RepoRoot}\config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#RepoRoot}\dev\*";    DestDir: "{app}\dev";    Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#RepoRoot}\test\testkit\*"; DestDir: "{app}\test\testkit"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; --- No image build inputs, deliberately -----------------------------------
 ; Nothing from cmd/, internal/, images/ or superset/ is shipped. compose.yaml
@@ -133,6 +136,13 @@ Name: "{group}\Check the stack";     Filename: "{cmd}"; Parameters: "/k cd /d ""
 Name: "{group}\Terminal here";       Filename: "{cmd}"; Parameters: "/k cd /d ""{app}"""; WorkingDir: "{app}"; Comment: "A command prompt in the installation directory"
 Name: "{group}\Installation guide";  Filename: "{app}\INSTALL.md"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
+
+; A separate "Testing" subfolder — a backslash in Name nests it under the
+; Start Menu group automatically — keeps these visually apart from the
+; shortcuts above: this is not something a real end user ever needs, only
+; someone validating this install itself. See test/testkit/README.md.
+Name: "{group}\Testing\Start test databases"; Filename: "{cmd}"; Parameters: "/k cd /d ""{app}"" && ""{app}\{#FedctlExe}"" testkit up"; WorkingDir: "{app}"; Comment: "Start three disposable databases and print everything needed to connect to them"
+Name: "{group}\Testing\Stop test databases";  Filename: "{cmd}"; Parameters: "/k cd /d ""{app}"" && ""{app}\{#FedctlExe}"" testkit down"; WorkingDir: "{app}"; Comment: "Stop the test databases and delete their data"
 
 Name: "{autodesktop}\{#AppName}"; Filename: "{cmd}"; Parameters: "/k cd /d ""{app}"""; WorkingDir: "{app}"; Tasks: desktopicon
 

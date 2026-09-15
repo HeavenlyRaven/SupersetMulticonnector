@@ -91,6 +91,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newPlanCmd())
 	root.AddCommand(newCheckCmd())
 	root.AddCommand(newDoctorCmd())
+	root.AddCommand(newTestkitCmd())
 	root.AddCommand(newVersionCmd())
 	return root
 }

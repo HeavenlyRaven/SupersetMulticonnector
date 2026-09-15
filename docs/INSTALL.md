@@ -295,9 +295,20 @@ FEDERATION_CLICKHOUSE_IMAGE=myrepo/clickhouse:dev
 
 ## Trying it out with sample data
 
-If you want to see a live cross-database join without connecting anything
-real, the repo ships two sample databases (a PostgreSQL and a MySQL, with a
-few rows each) behind a `dev` profile:
+Two different ways to get sample data, for two different situations.
+
+**Testing an installed copy on a machine with nothing else set up** —
+including needing a metadata database in the first place, which is normally
+the one thing you have to bring yourself: `fedctl testkit up`. One command,
+three disposable databases in Docker, and it prints every connection detail
+you need — see [test/testkit/README.md](../test/testkit/README.md). This is
+the fast path if you're validating an installer or package rather than
+developing the project itself.
+
+**Working from a source checkout, with a real metadata database already
+configured** — the repo ships two sample source databases (a PostgreSQL and
+a MySQL, with a few rows each) behind a `dev` profile, joined to the same
+Docker network as the real stack:
 
 ```
 fedctl up --dev
