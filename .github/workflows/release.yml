@@ -1,0 +1,313 @@
+name: Release
+
+# Produces everything a user might install, on every version tag:
+#   - multi-arch container images pushed to GHCR (what `fedctl up` pulls)
+#   - fedctl binaries for all five targets, plus checksums
+#   - .deb / .rpm / .apk packages for Linux
+#   - the Windows installer
+#   - a GitHub Release with all of the above attached
+#
+# Run it by pushing a tag:
+#   git tag v0.1.1 && git push origin v0.1.1
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (without the leading v), e.g. 0.1.1"
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  # Must stay lowercase and must match the defaults in compose.yaml.
+  IMAGE_CLICKHOUSE: ghcr.io/heavenlyraven/supersetmulticonnector/clickhouse
+  IMAGE_SUPERSET: ghcr.io/heavenlyraven/supersetmulticonnector/superset
+
+jobs:
+  # --------------------------------------------------------------------
+  # Establish the version once, and refuse to go further unless the tag,
+  # the VERSION file, and every file carrying a copy of it agree.
+  #
+  # This gate is the whole point of tools/version: compose.yaml pins the
+  # image tags an installed copy pulls, so a release whose tag and image
+  # tag disagree would hand users containers from a different version.
+  # Catching that here costs seconds; catching it after publishing costs
+  # a retracted release.
+  # --------------------------------------------------------------------
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - id: v
+        name: Resolve the version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ github.event.inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing version $version"
+
+      - name: Check the VERSION file matches the tag
+        run: |
+          file_version="$(cat VERSION)"
+          if [ "$file_version" != "${{ steps.v.outputs.version }}" ]; then
+            echo "::error::VERSION contains '$file_version' but this release is '${{ steps.v.outputs.version }}'."
+            echo "::error::Run 'make version-set VERSION=${{ steps.v.outputs.version }}', commit, and re-tag."
+            exit 1
+          fi
+
+      - name: Check every file agrees with VERSION
+        run: go run ./tools/version check
+
+  # --------------------------------------------------------------------
+  # Build the Superset extension bundle. Its output is optional: if it
+  # fails, the images below are still published, just without the SQL Lab
+  # panel — the same state as every build before this workflow existed.
+  # Everything the panel does is also reachable via `fedctl source ...`.
+  # --------------------------------------------------------------------
+  extension:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: extension/frontend/package-lock.json
+
+      - name: Build the frontend
+        working-directory: extension/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # NOTE: this is the one command in this workflow that has not been
+      # verified against a real run. `superset-extensions bundle` is named
+      # in extension/backend/pyproject.toml's build section, but the PyPI
+      # distribution that provides that CLI may be called something other
+      # than the name below. If this step fails with "No matching
+      # distribution found", correct the package name here — everything
+      # else in the job is standard.
+      - name: Build the .supx bundle
+        working-directory: extension
+        run: |
+          pip install apache-superset-extensions-cli
+          superset-extensions bundle
+          mkdir -p bundle
+          cp ./*.supx bundle/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-bundle
+          path: extension/bundle/*.supx
+          if-no-files-found: warn
+
+  # --------------------------------------------------------------------
+  # Multi-arch images. The Go build stage runs natively via
+  # --platform=$BUILDPLATFORM; only the base images' own layers go
+  # through QEMU, which is why this is tolerable without arm64 runners.
+  # --------------------------------------------------------------------
+  images:
+    needs: [version, extension]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Optional — absent if the extension job failed, which is fine:
+      # extension/bundle/ still has its .gitkeep so the COPY succeeds.
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: extension-bundle
+          path: extension/bundle
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the ClickHouse image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: images/clickhouse/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_CLICKHOUSE }}:${{ needs.version.outputs.version }}
+            ${{ env.IMAGE_CLICKHOUSE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push the Superset image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: images/superset/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_SUPERSET }}:${{ needs.version.outputs.version }}
+            ${{ env.IMAGE_SUPERSET }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # --------------------------------------------------------------------
+  # fedctl for all five targets, plus the Linux packages built from them.
+  # --------------------------------------------------------------------
+  binaries:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run the test suite before shipping anything
+        run: go test ./...
+
+      - name: Cross-build every target
+        run: make cross-build VERSION=${{ needs.version.outputs.version }}
+
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Build .deb / .rpm / .apk
+        run: |
+          for arch in amd64 arm64; do
+            for pkg in deb rpm apk; do
+              ARCH=$arch VERSION=${{ needs.version.outputs.version }} \
+                nfpm package --config packaging/nfpm.yaml --packager $pkg --target dist/
+            done
+          done
+
+      - name: Re-checksum everything, packages included
+        working-directory: dist
+        run: sha256sum fedctl-* *.deb *.rpm *.apk > checksums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-and-packages
+          path: |
+            dist/fedctl-*
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+            dist/checksums.txt
+
+  # --------------------------------------------------------------------
+  # The Windows installer, compiled with Inno Setup on a Windows runner.
+  # --------------------------------------------------------------------
+  installer-windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build the Windows binary
+        run: |
+          $env:CGO_ENABLED=0
+          $env:GOOS="windows"
+          $env:GOARCH="amd64"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          go build -trimpath -ldflags "-s -w -X main.version=${{ needs.version.outputs.version }}" -o dist/fedctl-windows-amd64.exe ./cmd/fedctl
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile the installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            /DAppVersion=${{ needs.version.outputs.version }} `
+            installer\windows\superset-federation.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/installer/*.exe
+
+  # --------------------------------------------------------------------
+  # Publish everything as one GitHub Release.
+  # --------------------------------------------------------------------
+  release:
+    needs: [version, images, binaries, installer-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect the release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec cp {} release/ \;
+          ls -la release
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: v${{ needs.version.outputs.version }}
+          generate_release_notes: true
+          files: release/*
+          body: |
+            ## Install
+
+            **Windows** — download `superset-federation-${{ needs.version.outputs.version }}-windows-x64-setup.exe` and run it.
+
+            **Debian / Ubuntu** — `sudo dpkg -i superset-federation_${{ needs.version.outputs.version }}_amd64.deb`
+
+            **Fedora / RHEL** — `sudo rpm -i superset-federation-${{ needs.version.outputs.version }}.x86_64.rpm`
+
+            **Alpine** — `sudo apk add --allow-untrusted superset-federation_${{ needs.version.outputs.version }}_x86_64.apk`
+
+            **macOS / anything else** — grab the matching `fedctl-*` binary.
+
+            Docker with Compose v2 is required on every platform, and an
+            external PostgreSQL for Superset's metadata. Full instructions:
+            [docs/INSTALL.md](https://github.com/HeavenlyRaven/SupersetMulticonnector/blob/v${{ needs.version.outputs.version }}/docs/INSTALL.md).
+
+            Verify a download against `checksums.txt` before installing.
+
+            ## Container images
+
+            ```
+            ${{ env.IMAGE_SUPERSET }}:${{ needs.version.outputs.version }}
+            ${{ env.IMAGE_CLICKHOUSE }}:${{ needs.version.outputs.version }}
+            ```
+
+            `fedctl up` pulls these automatically — no local build needed.

@@ -115,8 +115,14 @@ func runInstall(ctx context.Context, opts installOptions) error {
 	}
 
 	fmt.Println()
-	fmt.Println("bringing the stack up — this builds both images, so the first run can take a few minutes...")
-	if err := runUp(ctx, opts.Dev, 5*time.Minute); err != nil {
+	if resolveBuildMode(buildAuto) {
+		fmt.Println("bringing the stack up — this builds both images, so the first run can take a few minutes...")
+	} else {
+		fmt.Println("bringing the stack up — the first run downloads both images, so it can take a few minutes...")
+	}
+	// buildAuto: a source checkout compiles the images from its own
+	// Dockerfiles, an installed copy pulls the published ones instead.
+	if err := runUp(ctx, opts.Dev, 5*time.Minute, buildAuto); err != nil {
 		return err
 	}
 

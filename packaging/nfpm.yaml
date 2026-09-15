@@ -1,0 +1,77 @@
+# nfpm configuration — builds .deb, .rpm and .apk packages from one file.
+#
+#   nfpm package --config packaging/nfpm.yaml --packager deb --target dist/
+#   nfpm package --config packaging/nfpm.yaml --packager rpm --target dist/
+#   nfpm package --config packaging/nfpm.yaml --packager apk --target dist/
+#
+# ARCH and VERSION come from the environment; see the `packages-linux`
+# target in the Makefile, which sets both and loops over the packagers.
+#
+# nfpm is a single Go binary with no runtime dependencies:
+#   go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+name: superset-federation
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: database
+priority: optional
+maintainer: HeavenlyRaven <noreply@github.com>
+vendor: HeavenlyRaven
+homepage: https://github.com/HeavenlyRaven/SupersetMulticonnector
+license: Apache-2.0
+
+description: |
+  Query PostgreSQL, MySQL and SQLite together from Apache Superset.
+  ClickHouse acts as a federation hub, attaching each source through its
+  own database engine and joining across them live — no ETL, no
+  replication, nothing copied.
+  .
+  This package installs the fedctl command-line tool plus the stack
+  template it operates on. Docker with Compose v2 is required and is NOT
+  installed by this package; see
+  /usr/share/doc/superset-federation/INSTALL.md.
+
+# Deliberately no hard dependency on Docker: the package name differs
+# across distributions and installation routes (docker-ce, docker.io,
+# podman-docker, Docker Desktop's own .deb), so pinning one would make
+# this package uninstallable on perfectly good systems. `fedctl preflight`
+# checks for Docker at runtime and prints an actionable message instead.
+recommends:
+  - docker-ce
+
+contents:
+  # --- The CLI ------------------------------------------------------------
+  - src: ./dist/fedctl-linux-${ARCH}
+    dst: /usr/bin/fedctl
+    file_info:
+      mode: 0755
+
+  # --- Stack template -----------------------------------------------------
+  # Read-only reference copies. Users copy this tree into a writable
+  # directory of their own before running `fedctl install`, because that
+  # command writes .env next to compose.yaml and /usr/share is not
+  # user-writable. INSTALL.md spells out the exact commands.
+  - src: ./compose.yaml
+    dst: /usr/share/superset-federation/compose.yaml
+  - src: ./compose.dev.yaml
+    dst: /usr/share/superset-federation/compose.dev.yaml
+  - src: ./.env.example
+    dst: /usr/share/superset-federation/.env.example
+  - src: ./clickhouse/config.d/federation.xml
+    dst: /usr/share/superset-federation/clickhouse/config.d/federation.xml
+  - src: ./clickhouse/users.d/roles.xml
+    dst: /usr/share/superset-federation/clickhouse/users.d/roles.xml
+  - src: ./config/sources.yaml
+    dst: /usr/share/superset-federation/config/sources.yaml
+  - src: ./dev/postgres-init/001-sample.sql
+    dst: /usr/share/superset-federation/dev/postgres-init/001-sample.sql
+  - src: ./dev/mysql-init/001-sample.sql
+    dst: /usr/share/superset-federation/dev/mysql-init/001-sample.sql
+
+  # --- Documentation ------------------------------------------------------
+  - src: ./docs/INSTALL.md
+    dst: /usr/share/doc/superset-federation/INSTALL.md
+  - src: ./README.md
+    dst: /usr/share/doc/superset-federation/README.md

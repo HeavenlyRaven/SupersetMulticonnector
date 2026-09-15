@@ -4,6 +4,10 @@ Query PostgreSQL, MySQL, and SQLite together from Superset's SQL Lab.
 ClickHouse does the live cross-database joins; a two-container stack does
 the hosting — no ETL, no replication, no separate controller service.
 
+New to the codebase? [`docs/`](docs/README.md) is a guided tour that
+explains every file in the repository, and the Docker, SQL, Superset, and Go
+concepts behind them, from the ground up.
+
 ## Architecture
 
 Two containers: `superset` (Apache Superset, with a source-management panel
@@ -33,6 +37,13 @@ need those, add a Redis container and a Celery worker back in — nothing
 else here assumes their absence.
 
 ## Quickstart
+
+**On Windows**, there's an installer — download it from the
+[releases page](https://github.com/HeavenlyRaven/SupersetMulticonnector/releases)
+and follow [docs/INSTALL.md](docs/INSTALL.md), which also covers the two
+prerequisites (Docker Desktop, and an external PostgreSQL for Superset's
+metadata). The rest of this section is the build-from-source path, which
+works on every platform.
 
 Requires Docker with Compose v2 and buildx (Docker Desktop bundles both;
 on Linux, install `docker-compose-plugin` and `docker-buildx-plugin`).
@@ -115,6 +126,13 @@ Supporting a new database engine is one Go file and no frontend changes:
 The Add Source form renders its fields entirely from `GET /source-types`
 (`fedctl source types`), generated from your type's `Fields()` — no
 TypeScript changes needed for a new field set.
+
+## Releasing
+
+`make version-set VERSION=x.y.z`, commit, tag, push — the tag triggers a
+workflow that publishes container images, the Windows installer, `.deb`/
+`.rpm`/`.apk` packages, and binaries for all five targets. Full runbook:
+[RELEASING.md](RELEASING.md).
 
 ## Join-tuning knobs
 

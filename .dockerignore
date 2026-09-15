@@ -8,3 +8,12 @@ bin/
 .env
 .env.*
 !.env.example
+
+# Extension build output — images/superset/Dockerfile copies
+# extension/bundle/, so keep everything heavy out of the build context.
+extension/frontend/node_modules/
+extension/frontend/dist/
+extension/backend/dist/
+extension/dist/
+__pycache__/
+*.pyc

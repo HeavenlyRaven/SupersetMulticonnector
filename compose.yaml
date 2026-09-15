@@ -27,10 +27,19 @@ volumes:
 
 services:
   clickhouse:
+    # `image:` and `build:` together let one file serve both audiences.
+    # Plain `docker compose up` pulls the published image; `--build`
+    # compiles locally from the Dockerfile and tags the result with this
+    # same name. `fedctl up` picks between them automatically — it passes
+    # --build only when images/*/Dockerfile is actually present, i.e. in a
+    # source checkout rather than an installed copy (see cmd/fedctl/up.go).
+    #
+    # Override the registry/tag to run your own build:
+    #   FEDERATION_CLICKHOUSE_IMAGE=myrepo/clickhouse:dev fedctl up
+    image: ${FEDERATION_CLICKHOUSE_IMAGE:-ghcr.io/heavenlyraven/supersetmulticonnector/clickhouse:0.1.0}
     build:
       context: .
       dockerfile: images/clickhouse/Dockerfile
-    image: superset-federation/clickhouse:local
     networks:
       - federation
     volumes:
@@ -65,10 +74,12 @@ services:
       start_period: 30s
 
   superset:
+    # See the clickhouse service above for why both image: and build: are
+    # declared here.
+    image: ${FEDERATION_SUPERSET_IMAGE:-ghcr.io/heavenlyraven/supersetmulticonnector/superset:0.1.0}
     build:
       context: .
       dockerfile: images/superset/Dockerfile
-    image: superset-federation/superset:local
     networks:
       - federation
     depends_on:

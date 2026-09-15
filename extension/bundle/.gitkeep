@@ -1,0 +1,8 @@
+Built .supx extension bundles are placed in this directory before
+`docker build`, and images/superset/Dockerfile copies them into
+/app/extensions inside the image.
+
+This file only exists so the directory survives in git while empty, so
+that COPY always has something to copy. The release workflow overwrites
+the contents here; *.supx is git-ignored, so nothing built lands in a
+commit by accident.

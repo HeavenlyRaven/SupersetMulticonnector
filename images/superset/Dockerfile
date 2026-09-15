@@ -55,6 +55,20 @@ COPY superset/superset_config.py /app/pythonpath/superset_config.py
 # in compose.dev.yaml instead, so a production image never depends on
 # the extension's source tree being present at build time.
 RUN mkdir -p /app/extensions
+
+# Any .supx bundle sitting in extension/bundle/ at build time gets
+# installed here and loaded at startup. That directory is committed
+# containing only a .gitkeep, so this COPY always succeeds whether or not a
+# bundle has been built — an empty one just means no SQL Lab panel, which
+# is a perfectly usable stack, since everything the panel does is also
+# available through `fedctl source ...` on the command line.
+#
+# The release workflow (.github/workflows/release.yml) builds the bundle
+# and drops it here before calling docker build, so published images ship
+# with the extension included.
+COPY extension/bundle/ /app/extensions/
+RUN rm -f /app/extensions/.gitkeep
+
 ENV EXTENSIONS_PATH=/app/extensions
 
 USER superset
