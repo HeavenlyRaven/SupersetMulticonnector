@@ -277,8 +277,34 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Named downloads, not "grab everything" — docker/build-push-action
+      # auto-uploads its own provenance artifact per image build (named
+      # like "<owner>~<repo>~<hash>.dockerbuild"), which this workflow
+      # never asked for and has no use for. A path-less download grabs
+      # those too, and live-verified: they don't extract cleanly through
+      # the standard download step, failing the whole job even though the
+      # three real artifacts below had already downloaded successfully.
+      # Naming exactly what we want sidesteps them entirely.
+      #
+      # binaries-and-packages and windows-installer are hard dependencies
+      # of this job (see `needs:` above) — if we got here, both exist.
+      # extension-bundle is not: the extension job is continue-on-error,
+      # so its artifact may legitimately be absent, and this step alone
+      # is allowed to fail.
       - uses: actions/download-artifact@v4
         with:
+          name: binaries-and-packages
+          path: artifacts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: artifacts
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: extension-bundle
           path: artifacts
 
       - name: Collect the release assets
